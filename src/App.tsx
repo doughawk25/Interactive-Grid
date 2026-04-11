@@ -247,6 +247,17 @@ export default function App() {
 
         <div className="my-3 h-px bg-foreground/[0.04]" style={{ boxShadow: 'inset 0 0.5px 0 0 rgb(var(--color-foreground) / 0.08)' }} />
 
+        <div className="mb-3">
+          <div className="flex flex-wrap gap-1.5">
+            {SWATCHES.map(({ label, rgb, hex }) => (
+              <button key={label} title={label} onClick={() => { setBaseColor(rgb); setBaseHex(hex) }}
+                style={{ background: hex, boxShadow: baseHex === hex ? swatchRing : undefined }}
+                className="h-5 w-5 rounded-full border border-foreground/10 transition-transform hover:scale-110"
+              />
+            ))}
+          </div>
+        </div>
+
         <div className="mb-0">
           <div className="flex flex-wrap gap-1.5">
             {SWATCHES.map(({ label, rgb, hex }) => (
