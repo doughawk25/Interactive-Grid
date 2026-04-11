@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Dots } from './Dots'
 
 type Color = [number, number, number]
@@ -7,6 +7,14 @@ const PRESETS = {
   'Light': { bg: '#ffffff' },
   'Dark':  { bg: '#0a0a0b' },
 }
+
+const hexToRgb = (hex: string): Color => {
+  const h = hex.replace('#', '')
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+const rgbToHex = (rgb: Color): string =>
+  '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase()
 
 const SWATCHES: { label: string; rgb: Color; hex: string }[] = [
   { label: 'Purple',  rgb: [108, 71, 255], hex: '#6C47FF' },
@@ -131,25 +139,91 @@ function Slider({ label, desc, value, set, min, max, step, fmt }: {
   )
 }
 
+const initialParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams()
+const num = (k: string, fallback: number) => {
+  const v = initialParams.get(k)
+  const n = v == null ? NaN : Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+const str = <T extends string>(k: string, fallback: T, allowed: readonly T[]): T => {
+  const v = initialParams.get(k) as T | null
+  return v && allowed.includes(v) ? v : fallback
+}
+const colorParam = (k: string, fallbackHex: string): { rgb: Color; hex: string } => {
+  const v = initialParams.get(k)
+  if (v && /^[0-9a-fA-F]{6}$/.test(v)) {
+    const hex = '#' + v.toUpperCase()
+    return { rgb: hexToRgb(hex), hex }
+  }
+  return { rgb: hexToRgb(fallbackHex), hex: fallbackHex.toUpperCase() }
+}
+
 export default function App() {
   const [open, setOpen] = useState(true)
-  const [preset, setPreset] = useState<keyof typeof PRESETS>('Light')
-  const [dotSize, setDotSize] = useState(2)
-  const [totalSize, setTotalSize] = useState(6)
-  const [mode, setMode] = useState<'trail' | 'ripple'>('ripple')
-  const [glowColor, setGlowColor] = useState<Color>(SWATCHES[0].rgb)
-  const [glowHex, setGlowHex] = useState(SWATCHES[0].hex)
-  const [baseColor, setBaseColor] = useState<Color>([0, 0, 0])
-  const [baseHex, setBaseHex] = useState('#000000')
-  const [fadeOut, setFadeOut] = useState(20)
-  const [effectRadius, setEffectRadius] = useState(160)
-  const [rippleSpeed, setRippleSpeed] = useState(180)
-  const [rippleWidth, setRippleWidth] = useState(60)
-  const [activeScale, setActiveScale] = useState(1)
-  const [gradientDir, setGradientDir] = useState<0 | 1 | 2 | 3 | 4>(0)
-  const [gradientRamp, setGradientRamp] = useState(50)
+  const [preset, setPreset] = useState<keyof typeof PRESETS>(str<keyof typeof PRESETS>('p', 'Light', ['Light', 'Dark']))
+  const [dotSize, setDotSize] = useState(num('ds', 2))
+  const [totalSize, setTotalSize] = useState(num('gs', 6))
+  const [mode, setMode] = useState<'trail' | 'ripple'>(str<'trail' | 'ripple'>('m', 'ripple', ['trail', 'ripple']))
+  const initGlow = colorParam('gc', SWATCHES[0].hex)
+  const [glowColor, setGlowColor] = useState<Color>(initGlow.rgb)
+  const [glowHex, setGlowHex] = useState(initGlow.hex)
+  const initBase = colorParam('bc', '#000000')
+  const [baseColor, setBaseColor] = useState<Color>(initBase.rgb)
+  const [baseHex, setBaseHex] = useState(initBase.hex)
+  const [fadeOut, setFadeOut] = useState(num('fd', 20))
+  const [effectRadius, setEffectRadius] = useState(num('er', 160))
+  const [rippleSpeed, setRippleSpeed] = useState(num('sp', 180))
+  const [rippleWidth, setRippleWidth] = useState(num('rw', 60))
+  const [activeScale, setActiveScale] = useState(num('as', 1))
+  const [gradientDir, setGradientDir] = useState<0 | 1 | 2 | 3 | 4>((num('gd', 0) | 0) as 0 | 1 | 2 | 3 | 4)
+  const [gradientRamp, setGradientRamp] = useState(num('gr', 50))
   const gradientGamma = Math.pow(4, 1 - 2 * (gradientRamp / 100))
-  const [dotShape, setDotShape] = useState<'square' | 'circle'>('square')
+  const [dotShape, setDotShape] = useState<'square' | 'circle'>(str<'square' | 'circle'>('sh', 'square', ['square', 'circle']))
+
+  const [shareOpen, setShareOpen] = useState(false)
+  const [copied, setCopied] = useState<'link' | 'iframe' | null>(null)
+  const sharePopoverRef = useRef<HTMLDivElement>(null)
+
+  const buildShareUrl = () => {
+    const params = new URLSearchParams()
+    params.set('p', preset)
+    params.set('m', mode)
+    params.set('sh', dotShape)
+    params.set('ds', String(dotSize))
+    params.set('as', String(activeScale))
+    params.set('gs', String(totalSize))
+    params.set('sp', String(rippleSpeed))
+    params.set('rw', String(rippleWidth))
+    params.set('er', String(effectRadius))
+    params.set('fd', String(fadeOut))
+    params.set('gd', String(gradientDir))
+    params.set('gr', String(gradientRamp))
+    params.set('bc', baseHex.replace('#', ''))
+    params.set('gc', glowHex.replace('#', ''))
+    const origin = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : ''
+    return `${origin}?${params.toString()}`
+  }
+  const buildIframe = () => {
+    const url = buildShareUrl()
+    return `<iframe src="${url}" width="100%" height="600" style="border:0;border-radius:12px" allowfullscreen></iframe>`
+  }
+  const copy = async (kind: 'link' | 'iframe') => {
+    const text = kind === 'link' ? buildShareUrl() : buildIframe()
+    try { await navigator.clipboard.writeText(text) } catch {}
+    setCopied(kind)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  useEffect(() => {
+    if (!shareOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (sharePopoverRef.current && !sharePopoverRef.current.contains(e.target as Node)) {
+        setShareOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [shareOpen])
 
   const decay = 0.005 + ((100 - fadeOut) / 100) * 0.195
   const rippleLifetime = 0.3 + (fadeOut / 100) * 4.7
@@ -206,6 +280,45 @@ export default function App() {
 
       <div className={`dots-panel fixed left-4 top-4 z-50 w-56 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-foreground/10 bg-raised/85 p-4 shadow-xl backdrop-blur-md transition-all duration-300 ${open ? 'translate-x-0 opacity-100 pointer-events-auto' : '-translate-x-3 opacity-0 pointer-events-none'}`}>
 
+        <div className="mb-2 flex items-center justify-between" ref={sharePopoverRef}>
+          <div className="text-[0.7rem] font-medium text-foreground">Experiment_1</div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShareOpen((v) => !v)}
+              aria-label="Copy embed"
+              title="Copy embed"
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${shareOpen ? 'bg-foreground/10 text-foreground' : 'text-foreground-muted hover:bg-foreground/[0.06] hover:text-foreground'}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="5" width="8.5" height="8.5" rx="1.4" />
+                <path d="M10.5 5V3.5A1.4 1.4 0 0 0 9.1 2.1H3.9A1.4 1.4 0 0 0 2.5 3.5v5.6A1.4 1.4 0 0 0 3.9 10.5H5" />
+              </svg>
+            </button>
+            {shareOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1.5 w-48 overflow-hidden rounded-lg border border-foreground/10 bg-raised shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => copy('link')}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[0.7rem] font-medium text-foreground transition-colors hover:bg-foreground/[0.06]"
+                >
+                  <span>Copy link</span>
+                  <span className="text-[0.6rem] text-foreground-muted">{copied === 'link' ? 'Copied' : 'URL'}</span>
+                </button>
+                <div className="h-px bg-foreground/[0.06]" />
+                <button
+                  type="button"
+                  onClick={() => copy('iframe')}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[0.7rem] font-medium text-foreground transition-colors hover:bg-foreground/[0.06]"
+                >
+                  <span>Copy iframe</span>
+                  <span className="text-[0.6rem] text-foreground-muted">{copied === 'iframe' ? 'Copied' : 'HTML'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="flex gap-2">
           <div className="flex-1">
             <label className={`mb-1 block text-[0.6rem] font-medium uppercase tracking-wide ${labelCls}`}>Type</label>
@@ -248,6 +361,7 @@ export default function App() {
         <div className="my-3 h-px bg-foreground/[0.04]" style={{ boxShadow: 'inset 0 0.5px 0 0 rgb(var(--color-foreground) / 0.08)' }} />
 
         <div className="mb-3">
+          <label className={`mb-1.5 block text-[0.6rem] font-medium uppercase tracking-wide ${labelCls}`}>Default</label>
           <div className="flex flex-wrap gap-1.5">
             {SWATCHES.map(({ label, rgb, hex }) => (
               <button key={label} title={label} onClick={() => { setBaseColor(rgb); setBaseHex(hex) }}
@@ -259,6 +373,7 @@ export default function App() {
         </div>
 
         <div className="mb-0">
+          <label className={`mb-1.5 block text-[0.6rem] font-medium uppercase tracking-wide ${labelCls}`}>Active</label>
           <div className="flex flex-wrap gap-1.5">
             {SWATCHES.map(({ label, rgb, hex }) => (
               <button key={label} title={label} onClick={() => { setGlowColor(rgb); setGlowHex(hex) }}

@@ -203,10 +203,59 @@ export const Shader = forwardRef(function Shader(
       lastStampX = x; lastStampY = y; lastStampTime = currentTime.current
     }
 
+    function emitTouchPoint(touch: Touch) {
+      const rect = canvas.getBoundingClientRect()
+      const x = touch.clientX - rect.left, y = touch.clientY - rect.top
+      const now = currentTime.current
+      if (useVelocityAmplitudeRef.current) {
+        let amplitude = 1.0
+        if (prevMouseX >= 0 && now > prevMouseTime) {
+          const dx = x - prevMouseX, dy = y - prevMouseY
+          amplitude = Math.min(Math.sqrt(dx * dx + dy * dy) / (now - prevMouseTime) / 400, 1.0)
+          if (amplitude < 0.05) amplitude = 1.0
+        }
+        prevMouseX = x; prevMouseY = y; prevMouseTime = now
+        mouseOver = true
+        addStamp(x, y, amplitude)
+      } else {
+        addStamp(x, y, 1.0)
+        mouseOver = true
+      }
+    }
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length === 0) return
+      e.preventDefault()
+      // Reset velocity tracking on a fresh contact
+      prevMouseX = -1; prevMouseY = -1; prevMouseTime = -1
+      const t = e.touches[0]
+      // Always emit a stamp on tap, regardless of mode
+      const rect = canvas.getBoundingClientRect()
+      const x = t.clientX - rect.left, y = t.clientY - rect.top
+      trailPositions.copyWithin(0, 2); trailStrengths.copyWithin(0, 1); trailTimes.copyWithin(0, 1)
+      trailPositions[(MAX_TRAIL - 1) * 2] = x; trailPositions[(MAX_TRAIL - 1) * 2 + 1] = y
+      trailStrengths[MAX_TRAIL - 1] = 1.0; trailTimes[MAX_TRAIL - 1] = currentTime.current
+      lastStampX = x; lastStampY = y; lastStampTime = currentTime.current
+      mouseOver = true
+    }
+    function onTouchMove(e: TouchEvent) {
+      if (e.touches.length === 0) return
+      e.preventDefault()
+      emitTouchPoint(e.touches[0])
+    }
+    function onTouchEnd() {
+      mouseOver = false
+      lastStampX = -1; lastStampY = -1; lastStampTime = -1
+      prevMouseX = -1; prevMouseY = -1; prevMouseTime = -1
+    }
+
     if (trailPositionsLoc || trailStrengthsLoc || trailTimesLoc) {
       canvas.addEventListener('mousemove', onMouseMove)
       canvas.addEventListener('mouseleave', onMouseLeave)
       canvas.addEventListener('click', onMouseClick)
+      canvas.addEventListener('touchstart', onTouchStart, { passive: false })
+      canvas.addEventListener('touchmove', onTouchMove, { passive: false })
+      canvas.addEventListener('touchend', onTouchEnd)
+      canvas.addEventListener('touchcancel', onTouchEnd)
     }
 
     for (let name in uniforms) customLocs.set(name, gl.getUniformLocation(shaderProgram, name))
@@ -315,6 +364,10 @@ export const Shader = forwardRef(function Shader(
         canvas.removeEventListener('mousemove', onMouseMove)
         canvas.removeEventListener('mouseleave', onMouseLeave)
         canvas.removeEventListener('click', onMouseClick)
+        canvas.removeEventListener('touchstart', onTouchStart)
+        canvas.removeEventListener('touchmove', onTouchMove)
+        canvas.removeEventListener('touchend', onTouchEnd)
+        canvas.removeEventListener('touchcancel', onTouchEnd)
       }
       if (gl) {
         gl.deleteShader(vertexShader); gl.deleteShader(fragmentShader)
@@ -327,5 +380,5 @@ export const Shader = forwardRef(function Shader(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fragmentShaderSource, maxFps, textures.join('')])
 
-  return <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden />
+  return <canvas ref={canvasRef} className="absolute inset-0 h-full w-full touch-none" aria-hidden />
 })
